@@ -1,38 +1,35 @@
-# 🏢 Enterprise Multi-Resume HR RAG System (Final Stable Version)
+# 🏢 Enterprise Multi-Resume HR RAG System (Optimized Production Version)
 
 import streamlit as st
 import pandas as pd
+import os
+import re
 from openai import OpenAI
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-
-
-# -----------------------------
-# PAGE CONFIG
-# -----------------------------
 st.set_page_config(page_title="Enterprise HR AI System", layout="wide")
 st.title("🏢 Enterprise Multi-Resume HR RAG System")
 
 # -----------------------------
-# API KEY
+# CACHE HEAVY RESOURCES
 # -----------------------------
-import os
+@st.cache_resource
+def load_openai_client():
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        return None
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1"
+    )
 
-api_key = os.getenv("OPENROUTER_API_KEY")
+client = load_openai_client()
 
-if not api_key:
-    st.error("🚨 OpenRouter API key not found in environment variables.")
+if client is None:
+    st.error("🚨 OpenRouter API key not found.")
     st.stop()
 
-client = OpenAI(
-api_key=api_key,
-base_url="https://openrouter.ai/api/v1"
-)
-
 # -----------------------------
-# LOAD EXCEL DATASET
+# FILE UPLOAD
 # -----------------------------
 excel_file = st.file_uploader("Upload Candidate Dataset (Excel)", type="xlsx")
 
@@ -44,13 +41,13 @@ if excel_file:
     st.dataframe(df)
 
     # -----------------------------
-    # STRUCTURED FILTERING
+    # FILTERING
     # -----------------------------
     st.subheader("🔎 Structured Filtering")
 
     dept = st.multiselect("Department", df["Department"].unique())
-    degree = st.multiselect("Degree (UG/PG)", df["Degree"].unique())
-    min_exp = st.slider("Minimum Experience (Years)", 0, 20, 0)
+    degree = st.multiselect("Degree", df["Degree"].unique())
+    min_exp = st.slider("Minimum Experience", 0, 20, 0)
     max_age = st.slider("Maximum Age", 18, 60, 60)
 
     filtered_df = df.copy()
@@ -70,132 +67,58 @@ if excel_file:
     st.dataframe(filtered_df)
 
     # -----------------------------
-    # ENTERPRISE MULTI-RESUME RAG
+    # HR QUESTION SYSTEM
     # -----------------------------
-    # -----------------------------
-# ENTERPRISE HR QUERY SYSTEM (Fixed Version)
-# -----------------------------
-import re
+    st.subheader("🤖 Ask Enterprise HR Question")
 
-st.subheader("🤖 Ask Enterprise HR Question")
+    if not filtered_df.empty:
 
-if filtered_df.empty:
-    st.warning("No candidates match selected filters.")
+        query = st.text_input("Ask HR Question")
 
-else:
+        if st.button("Analyze"):
 
-    query = st.text_input(
-        "Ask HR Question (e.g., age 22, below 25, how many candidates?)"
-    )
+            if not query.strip():
+                st.warning("Please enter a question.")
 
-    if st.button("Analyze"):
+            else:
 
-        if not query.strip():
-            st.warning("Please enter a question.")
+                query_lower = query.lower()
+                result_df = filtered_df.copy()
 
-        else:
+                # AGE HANDLING
+                age_exact = re.search(r'\bage\s*(\d+)', query_lower)
+                age_below = re.search(r'below\s*(\d+)', query_lower)
+                age_above = re.search(r'above\s*(\d+)', query_lower)
 
-            query_lower = query.lower()
+                if age_exact:
+                    result_df = result_df[result_df["Age"] == int(age_exact.group(1))]
 
-            # -----------------------------
-            # 🔹 STRUCTURED QUERY HANDLER
-            # -----------------------------
+                elif age_below:
+                    result_df = result_df[result_df["Age"] < int(age_below.group(1))]
 
-            age_exact = re.search(r'\bage\s*(\d+)', query_lower)
-            age_below = re.search(r'below\s*(\d+)', query_lower)
-            age_above = re.search(r'above\s*(\d+)', query_lower)
-
-            result_df = filtered_df.copy()
-
-            if age_exact:
-                age_value = int(age_exact.group(1))
-                result_df = result_df[result_df["Age"] == age_value]
-
-            elif age_below:
-                age_value = int(age_below.group(1))
-                result_df = result_df[result_df["Age"] < age_value]
-
-            elif age_above:
-                age_value = int(age_above.group(1))
-                result_df = result_df[result_df["Age"] > age_value]
-
-            # -----------------------------
-            # 🔹 COUNT QUERY
-            # -----------------------------
-            if "how many" in query_lower:
-                st.success(f"Total Candidates: {len(result_df)}")
-                st.dataframe(result_df)
-
-            # -----------------------------
-            # 🔹 IF STRUCTURED FILTER APPLIED
-            # -----------------------------
-            elif age_exact or age_below or age_above:
+                elif age_above:
+                    result_df = result_df[result_df["Age"] > int(age_above.group(1))]
 
                 if result_df.empty:
                     st.warning("No candidates found.")
                 else:
+
                     st.success(f"{len(result_df)} candidates found")
                     st.dataframe(result_df)
 
-                    # Convert to structured text for LLM summary
+                    # 🔥 FULL RESUME DETAILS
                     structured_text = ""
                     for _, row in result_df.iterrows():
-                        structured_text += f"""
-Name: {row['Name']}
-Department: {row['Department']}
-Age: {row['Age']}
-Experience: {row['Experience']} years
-Degree: {row['Degree']}
-Skills: {row['Skills']}
------------------------
-"""
+                        structured_text += "\n".join(
+                            [f"{col}: {row[col]}" for col in result_df.columns]
+                        )
+                        structured_text += "\n----------------------\n"
 
                     prompt = f"""
-You are an enterprise HR analytics AI system.
+You are an enterprise HR analytics AI.
 
-Use ONLY the data provided below.
-Do NOT invent new candidates.
-Do NOT modify values.
-
-Candidate Data:
-{structured_text}
-
-Provide professional HR insights strictly based on this dataset.
-"""
-
-                    response = client.chat.completions.create(
-                        model="z-ai/glm-4.5-air:free",
-                        messages=[
-                            {"role": "user", "content": prompt}
-                        ]
-                    )
-
-                    st.markdown("### 📊 HR AI Response")
-                    st.info(response.choices[0].message.content)
-
-            # -----------------------------
-            # 🔹 GENERAL HR QUESTION (Use LLM)
-            # -----------------------------
-            else:
-
-                # Convert entire filtered_df into context
-                structured_text = ""
-                for _, row in filtered_df.iterrows():
-                    structured_text += f"""
-Name: {row['Name']}
-Department: {row['Department']}
-Age: {row['Age']}
-Experience: {row['Experience']} years
-Degree: {row['Degree']}
-Skills: {row['Skills']}
------------------------
-"""
-
-                prompt = f"""
-You are an enterprise HR analytics AI system.
-
-Use ONLY the following filtered candidate dataset.
-Do NOT invent information.
+Use ONLY the candidate dataset below.
+Do NOT invent new data.
 
 Dataset:
 {structured_text}
@@ -203,15 +126,23 @@ Dataset:
 Question:
 {query}
 
-Answer professionally.
+Provide:
+1. Detailed candidate analysis
+2. Strength summary
+3. Hiring recommendation
+4. Professional HR insights
 """
 
-                response = client.chat.completions.create(
-                    model="z-ai/glm-4.5-air:free",
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
-                )
+                    response = client.chat.completions.create(
+                        model="z-ai/glm-4.5-air:free",
+                        messages=[{"role": "user", "content": prompt}]
+                    )
 
-                st.markdown("### 📊 HR AI Response")
-                st.info(response.choices[0].message.content)
+                    st.markdown("### 📊 HR AI Response")
+                    st.info(response.choices[0].message.content)
+
+    else:
+        st.warning("No candidates match selected filters.")
+
+else:
+    st.info("📂 Please upload an Excel dataset to begin.")
