@@ -146,3 +146,38 @@ Provide:
 
 else:
     st.info("📂 Please upload an Excel dataset to begin.")
+
+    st.markdown("""
+<style>
+.footer {
+    position: fixed;
+    bottom: 12px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: white;
+    text-shadow: 0 0 10px #4fc3f7, 0 0 20px #4fc3f7;
+    z-index: 1000;
+}
+
+.footer img {
+    filter: drop-shadow(0 0 6px #4fc3f7);
+    transition: transform 0.2s ease-in-out;
+}
+
+.footer img:hover {
+    transform: scale(1.15);
+}
+</style>
+
+<div class="footer">
+    Powered by Shakthi
+    <a href="https://github.com/sakthi-28" target="_blank">
+        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" 
+        width="18" height="18"/>
+    </a>
+</div>
+""", unsafe_allow_html=True)
